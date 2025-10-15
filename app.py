@@ -4,22 +4,20 @@ import braintree
 
 app = Flask(__name__, static_folder='.')
 
-# === CONFIGURACIÓN DE PRODUCCIÓN (con las claves que me diste) ===
+# === CONFIGURACIÓN DE PRODUCCIÓN usando variables de entorno ===
 gateway = braintree.BraintreeGateway(
     braintree.Configuration(
-        braintree.Environment.Production,   # Production para tarjetas reales
-        merchant_id="jxt8gkkmg5m48mpy",
-        public_key="63bcvc69c2qtq664",
-        private_key="ef038ed05734228b3001b51a6a0c6711"
+        braintree.Environment.Production,
+        merchant_id=os.getenv("BRAINTREE_MERCHANT_ID"),
+        public_key=os.getenv("BRAINTREE_PUBLIC_KEY"),
+        private_key=os.getenv("BRAINTREE_PRIVATE_KEY")
     )
 )
 
-# Sirve index.html desde la raíz
 @app.route("/", methods=["GET"])
 def index():
     return send_from_directory('.', 'index.html')
 
-# Genera un token de cliente para el frontend
 @app.route("/client_token", methods=["GET"])
 def client_token():
     try:
@@ -28,7 +26,6 @@ def client_token():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Procesa el pago y verifica la tarjeta
 @app.route("/checkout", methods=["POST"])
 def checkout():
     data = request.get_json()
@@ -63,7 +60,6 @@ def checkout():
                 return jsonify({"success": False, "message": result.message}), 400
 
     except Exception as e:
-        # No exponemos detalles internos en la respuesta, pero los puedes loguear en tu servidor seguro
         return jsonify({"error": "internal error"}), 500
 
 if __name__ == "__main__":
