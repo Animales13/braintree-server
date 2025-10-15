@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Pago Braintree Producción</title>
+    <script src="https://js.braintreegateway.com/web/dropin/1.39.0/js/dropin.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        #dropin-container { margin-bottom: 10px; }
+        #result { margin-top: 15px; padding: 10px; border-radius: 5px; display: none; }
+        #result.success { background-color: #d4edda; color: #155724; }
+        #result.error { background-color: #f8d7da; color: #721c24; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Pago Braintree Producción</h1>
+    <div id="dropin-container"></div>
+    <button id="pay-button">Pagar</button>
+    <div id="result"></div>
+
+    <script>
+        const resultDiv = document.getElementById('result');
+
+        function showResult(message, success) {
+            resultDiv.style.display = 'block';
+            resultDiv.className = success ? 'success' : 'error';
+            resultDiv.textContent = message;
+        }
+
+        fetch('/client_token')
+            .then(res => res.json())
+            .then(data => {
+                if (!data.clientToken) {
+                    showResult('Error: No se obtuvo client token', false);
+                    return;
+                }
+
+                braintree.dropin.create({
+                    authorization: data.clientToken,
+                    container: '#dropin-container'
+                }, function (err, instance) {
+                    if (err) {
+                        showResult('Error al cargar Drop-in: ' + err, false);
+                        console.error(err);
+                        return;
+                    }
+
+                    document.getElementById('pay-button').addEventListener('click', function () {
+                        instance.requestPaymentMethod(function (err, payload) {
+                            if (err) { showResult('Error al obtener método de pago', false); console.error(err); return; }
+
+                            fetch('/checkout', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ nonce: payload.nonce, amount: "10.00" })
+                            })
+                            .then(res => res.json().then(data => ({ status: res.status, body: data })))
+                            .then(result => {
+                                if (result.status === 200 && result.body.success) {
+                                    showResult(`Pago exitoso! ID: ${result.body.transaction_id}`, true);
+                                } else {
+                                    showResult(`Pago fallido: ${result.body.message || 'Tarjeta rechazada'}`, false);
+                                }
+                            })
+                            .catch(err => { showResult('Error al procesar el pago', false); console.error(err); });
+                        });
+                    });
+                });
+            })
+            .catch(err => { showResult('No se pudo obtener client token', false); console.error(err); });
+    </script>
+</body>
+</html>
