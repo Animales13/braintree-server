@@ -1,69 +1,67 @@
+import os
 from flask import Flask, request, jsonify, send_from_directory
 import braintree
-import os
 
 app = Flask(__name__, static_folder='.')
 
-# Configura el gateway de Braintree (producción)
+# Configura el gateway de Braintree usando variables de entorno (Sandbox o Producción)
 gateway = braintree.BraintreeGateway(
     braintree.Configuration(
-        braintree.Environment.Production,  # usa Production cuando vayas a cobrar tarjetas reales
+        braintree.Environment.Sandbox,  # Cambia a Production si quieres usar tarjetas reales
         merchant_id=os.getenv("BRAINTREE_MERCHANT_ID"),
         public_key=os.getenv("BRAINTREE_PUBLIC_KEY"),
         private_key=os.getenv("BRAINTREE_PRIVATE_KEY")
     )
 )
 
-# Sirve el index.html desde la raíz
+# Sirve index.html desde la raíz
 @app.route("/", methods=["GET"])
 def index():
     return send_from_directory('.', 'index.html')
 
-# Endpoint para generar client token
+# Genera un token de cliente para el frontend
 @app.route("/client_token", methods=["GET"])
 def client_token():
-    try:
-        token = gateway.client_token.generate()
-        return jsonify({"clientToken": token})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    token = gateway.client_token.generate()
+    return jsonify({"clientToken": token})
 
-# Endpoint para procesar pagos
+# Procesa el pago y verifica la tarjeta
 @app.route("/checkout", methods=["POST"])
 def checkout():
     data = request.get_json()
     nonce = data.get("nonce")
-    amount = data.get("amount")
+    amount = data.get("amount", "1.00")
 
-    if not nonce or not amount:
-        return jsonify({"error": "missing nonce or amount"}), 400
+    result = gateway.transaction.sale({
+        "amount": amount,
+        "payment_method_nonce": nonce,
+        "options": { "submit_for_settlement": True }
+    })
 
-    try:
-        result = gateway.transaction.sale({
-            "amount": amount,
-            "payment_method_nonce": nonce,
-            "options": {"submit_for_settlement": True}
+    if result.is_success:
+        return jsonify({
+            "status": "live card",
+            "success": True,
+            "transaction_id": result.transaction.id
         })
-
-        if result.is_success:
+    else:
+        txn = getattr(result, "transaction", None)
+        if txn:
             return jsonify({
-                "success": True,
-                "transaction_id": result.transaction.id
-            })
+                "status": "decline card",
+                "success": False,
+                "transaction_status": txn.status,
+                "processor_response_code": txn.processor_response_code,
+                "message": result.message
+            }), 400
         else:
-            txn = getattr(result, "transaction", None)
-            if txn:
-                return jsonify({
-                    "success": False,
-                    "transaction_status": txn.status,
-                    "processor_response_code": txn.processor_response_code,
-                    "message": result.message
-                }), 400
-            else:
-                return jsonify({"success": False, "message": result.message}), 400
+            return jsonify({
+                "status": "decline card",
+                "success": False,
+                "message": result.message
+            }), 400
 
-    except Exception as e:
-        return jsonify({"error": "internal error"}), 500
-
+# Ejecuta la app en Render
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
